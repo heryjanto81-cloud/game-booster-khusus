@@ -21,32 +21,58 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Install Gradle 8.5 (Anti-504 CDN) & Build APK
+      - name: Download Gradle 8.5 (Multi-Mirror Tanpa gradle.org) & Build APK
         run: |
           set -e
           echo "=== 1. Menerima Lisensi Android SDK ==="
           yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null 2>&1 || true
 
-          echo "=== 2. Mengunduh Gradle 8.5 via Global CDN (Anti-504 + Auto-Retry) ==="
-          curl --retry 5 --retry-delay 3 --retry-all-errors -fL \
-            "https://downloads.gradle-dn.com/distributions/gradle-8.5-bin.zip" -o /tmp/gradle.zip \
-          || curl --retry 5 --retry-delay 3 --retry-all-errors -fL \
-            "https://services.gradle.org/distributions/gradle-8.5-bin.zip" -o /tmp/gradle.zip
+          echo "=== 2. Mengunduh Gradle 8.5 dari 4 Mirror Independen (Bebas 504 gradle.org) ==="
+          MIRRORS=(
+            "https://distfiles.macports.org/gradle/gradle-8.5-bin.zip"
+            "https://mirrors.aliyun.com/macports/distfiles/gradle/gradle-8.5-bin.zip"
+            "https://mirrors.cloud.tencent.com/gradle/gradle-8.5-bin.zip"
+            "https://mirrors.huaweicloud.com/gradle/gradle-8.5-bin.zip"
+          )
+
+          DOWNLOAD_OK=0
+          for URL in "${MIRRORS[@]}"; do
+            echo "Mencoba unduh dari mirror: $URL"
+            if curl -fL --connect-timeout 15 --max-time 180 --retry 2 "$URL" -o /tmp/gradle.zip; then
+              echo "BERHASIL mengunduh Gradle 8.5 dari: $URL"
+              DOWNLOAD_OK=1
+              break
+            else
+              echo "Mirror $URL gagal, pindah ke mirror cadangan berikutnya..."
+            fi
+          done
+
+          if [ "$DOWNLOAD_OK" -eq 0 ]; then
+            echo "ERROR: Semua mirror gagal dihubungi!"
+            exit 1
+          fi
 
           unzip -q -o /tmp/gradle.zip -d /tmp
           export PATH="/tmp/gradle-8.5/bin:$PATH"
           gradle -v
 
-          echo "=== 3. Mencari Lokasi Folder Proyek & Compile APK ==="
+          echo "=== 3. Mencari Folder Proyek & Compile APK ==="
           FOUND_SETTINGS=$(find . -name "settings.gradle.kts" | head -n 1)
           if [ -z "$FOUND_SETTINGS" ]; then
-            echo "ERROR: File settings.gradle.kts tidak ditemukan di repository!"
+            echo "ERROR: File settings.gradle.kts tidak ditemukan!"
             exit 1
           fi
 
           PROJECT_DIR=$(dirname "$FOUND_SETTINGS")
-          echo "Folder proyek ditemukan di: $PROJECT_DIR"
           cd "$PROJECT_DIR"
+
+          # Hapus gradlePluginPortal() agar tidak menghubungi server gradle.org yang sedang error 504
+          sed -i '/gradlePluginPortal()/d' settings.gradle.kts || true
+
+          # Pastikan ic_launcher_round.xml tersedia
+          if [ -f "app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml" ] && [ ! -f "app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml" ]; then
+            cp app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml
+          fi
 
           gradle assembleDebug --no-daemon --stacktrace
 
