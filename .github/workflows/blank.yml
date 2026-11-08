@@ -21,19 +21,24 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Accept Android SDK Licenses
+        run: yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
 
       - name: Setup Gradle 8.5
-        uses: gradle/actions/setup-gradle@v3
+        uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.5'
 
       - name: Build Debug APK
-        run: gradle assembleDebug --stacktrace
+        run: |
+          if [ -f "settings.gradle.kts" ]; then
+            gradle assembleDebug --stacktrace
+          elif [ -f "RedDimensity-8400Ultra-Booster/settings.gradle.kts" ]; then
+            cd RedDimensity-8400Ultra-Booster && gradle assembleDebug --stacktrace
+          fi
 
       - name: Upload Compiled APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: RedDimensity-8400Ultra-GameSpace-APK
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: "**/app/build/outputs/apk/debug/app-debug.apk"
